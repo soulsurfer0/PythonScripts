@@ -1,0 +1,130 @@
+# Slide Extraction from Online Lectures
+# Author: Robert Swetland
+# Date: 2025
+
+# Prerequisites: Python 3 and Tesseract OCR installed locally
+# Required Python packages: OpenCV, NumPy, scikit-image, pytesseract, imagehash
+
+# Import necessary libraries
+import cv2
+import numpy as np
+import os
+import zipfile
+import sys
+import subprocess
+from PIL import Image
+import imagehash
+
+# Ensure required packages are installed; automatically install if missing
+try:
+    from skimage.metrics import structural_similarity as ssim
+    import pytesseract
+except ModuleNotFoundError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "scikit-image"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pytesseract"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "opencv-python"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "imagehash"])
+    from skimage.metrics import structural_similarity as ssim
+    import pytesseract  # Retry import after installation
+
+# Configure the path to the Tesseract OCR executable (adjust according to your installation)
+pytesseract.pytesseract.tesseract_cmd = r"path\to\installation\tesseract.exe"
+
+# Define file paths for the input video, output slides directory, and resulting ZIP file
+video_path = r"path\to\lecture.mp4"
+output_dir = r"path\to\extracted_slides"
+zip_path   = r"path\to\extracted_slides.zip"
+
+# Create the output directory if it does not already exist
+os.makedirs(output_dir, exist_ok=True)
+
+# Initialize video capture from the provided video file
+cap = cv2.VideoCapture(video_path)
+
+# Initialize variables to store previous states for comparison
+previous_frame = None
+previous_text  = None
+previous_hash  = None
+slide_count    = 0
+
+def extract_text(image):
+    """
+    Extract text from an image using Tesseract OCR.
+
+    Args:
+        image: Grayscale image frame to process
+
+    Returns:
+        String of extracted text from image
+    """
+    return pytesseract.image_to_string(image, config='--psm 6').strip()
+
+def calculate_frame_difference(img1, img2):
+    """
+    Calculate the absolute difference between two frames.
+
+    Args:
+        img1: First grayscale image frame
+        img2: Second grayscale image frame
+
+    Returns:
+        Mean of the absolute difference between images
+    """
+    diff = cv2.absdiff(img1, img2)
+    return np.mean(diff)
+
+def is_new_slide(image_path, previous_hash):
+    """
+    Determine if the current slide is significantly different using perceptual hashing.
+
+    Args:
+        image_path: Path to the current slide image file
+        previous_hash: Perceptual hash of the previous slide
+
+    Returns:
+        Tuple containing boolean indicating uniqueness and current image hash
+    """
+    img_hash = imagehash.phash(Image.open(image_path))
+    return abs(img_hash - previous_hash) > 5, img_hash
+
+# Iterate over each frame in the video
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break  # Exit loop if no frames left (end of video)
+
+    # Convert the current frame to grayscale for analysis
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    if previous_frame is not None:
+        frame_diff = calculate_frame_difference(previous_frame, gray_frame)
+        similarity = ssim(previous_frame, gray_frame)
+        current_text = extract_text(gray_frame)
+
+        if frame_diff > 5 or similarity < 0.98 or (current_text and current_text != previous_text):
+            slide_count += 1
+            slide_path = os.path.join(output_dir, f"slide_{slide_count:03}.jpg")
+            cv2.imwrite(slide_path, frame)
+
+            if previous_hash is not None:
+                is_unique, new_hash = is_new_slide(slide_path, previous_hash)
+                if not is_unique:
+                    os.remove(slide_path)
+                    slide_count -= 1
+                else:
+                    previous_hash = new_hash
+            else:
+                previous_hash = imagehash.phash(Image.open(slide_path))
+
+            previous_text = current_text
+
+    previous_frame = gray_frame
+
+cap.release()
+
+with zipfile.ZipFile(zip_path, 'w') as zipf:
+    for file in os.listdir(output_dir):
+        zipf.write(os.path.join(output_dir, file), file)
+
+print(f"Slides extracted and saved to: {zip_path}")
