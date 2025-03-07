@@ -1,9 +1,9 @@
-# Slide Extraction from Online Lectures
+# Image De-Duplication
 # Author: Robert Swetland
 # Date: 2025
 
-# Prerequisites: Python 3 and Tesseract OCR installed locally
-# Required Python packages: OpenCV, NumPy, scikit-image, pytesseract, imagehash
+# Prerequisites: Python 3
+# Required Python packages: OpenCV, NumPy, PathLib, SkLearn, ImageHash, PIL, ArgParse, Collections. Logging, Time, xml.etree.ElementTree, hashlib 
 
 # Required libraries
 # In a terminal window paste the following
